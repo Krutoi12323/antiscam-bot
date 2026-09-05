@@ -4,6 +4,6 @@
     "builder": "RAILPACK"
   },
   "deploy": {
-    "startCommand": "python src/main.py"
+    "startCommand": "python antihub.py"
   }
 }
