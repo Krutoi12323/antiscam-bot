@@ -6,20 +6,14 @@ from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 
-# Настройка логирования, чтобы видеть все процессы в консоли Railway
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO
-)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Инициализация бота и диспетчера
 TOKEN = "8842726749:AAG1v-6yz64Xn9BWBNtpC-oYT4kW6ui6UIo"
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 router = Router()
 
-# Настройка порта для Railway
 PORT = int(os.getenv("PORT", 8080))
 PUBLIC_DOMAIN = os.getenv("RAILWAY_PUBLIC_DOMAIN")
 
@@ -59,7 +53,6 @@ async def help_sos(callback: CallbackQuery):
 
 dp.include_router(router)
 
-# Веб-сервер для Mini App
 async def handle_index(request):
     return web.Response(text="Anti-Scam Bot Web Service is running!")
 
@@ -207,10 +200,7 @@ async def start_web_server():
 
 async def main():
     logger.info("Запуск бота...")
-    # Очищаем зависшие вебхуки, чтобы polling работал корректно
     await bot.delete_webhook(drop_pending_updates=True)
-    
-    # Запускаем веб-сервер и поллинг одновременно
     await start_web_server()
     await dp.start_polling(bot)
 
