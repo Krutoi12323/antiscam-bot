@@ -6,8 +6,12 @@ from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 
-# Настройка логирования
-logging.basicConfig(level=logging.INFO)
+# Настройка логирования, чтобы видеть все процессы в консоли Railway
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
 # Инициализация бота и диспетчера
 TOKEN = "8842726749:AAG1v-6yz64Xn9BWBNtpC-oYT4kW6ui6UIo"
@@ -15,22 +19,27 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher()
 router = Router()
 
-# Настройка порта и веб-сервера для Railway (устраняет ошибку "Unexposed service")
+# Настройка порта для Railway
 PORT = int(os.getenv("PORT", 8080))
-PUBLIC_DOMAIN = os.getenv("RAILWAY_PUBLIC_DOMAIN", "localhost:8080")
-if not PUBLIC_DOMAIN.startswith("http"):
-    WEBAPP_URL = f"https://{PUBLIC_DOMAIN}/webapp"
+PUBLIC_DOMAIN = os.getenv("RAILWAY_PUBLIC_DOMAIN")
+
+if PUBLIC_DOMAIN:
+    if not PUBLIC_DOMAIN.startswith("http"):
+        WEBAPP_URL = f"https://{PUBLIC_DOMAIN}/webapp"
+    else:
+        WEBAPP_URL = f"{PUBLIC_DOMAIN}/webapp"
 else:
-    WEBAPP_URL = f"{PUBLIC_DOMAIN}/webapp"
+    WEBAPP_URL = f"http://localhost:{PORT}/webapp"
 
 @router.message(Command("start"))
 async def cmd_start(message: Message):
+    logger.info(f"Получена команда /start от пользователя {message.from_user.id}")
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📞 Симулировать входящий звонок (Mini App)", web_app=WebAppInfo(url=WEBAPP_URL))],
         [InlineKeyboardButton(text="🆘 Экстренная помощь", callback_data="help_sos")]
     ])
     welcome_text = (
-        "🤖 Бот успешно запущен и заработал!\n\n"
+        "🤖 Бот успешно запущен и работает!\n\n"
         "Утром каждый день как судный, когда наступает день идти в колледж, "
         "но давай прокачаем твою кибербезопасность.\n\n"
         "Я бот-тренажер «Антимошенник». Нажми кнопку ниже, чтобы запустить интерактивный звонок в Mini App:"
@@ -50,7 +59,7 @@ async def help_sos(callback: CallbackQuery):
 
 dp.include_router(router)
 
-# HTML-код встроенного Mini App с интерфейсом звонка
+# Веб-сервер для Mini App
 async def handle_index(request):
     return web.Response(text="Anti-Scam Bot Web Service is running!")
 
@@ -194,9 +203,14 @@ async def start_web_server():
     await runner.setup()
     site = web.TCPSite(runner, '0.0.0.0', PORT)
     await site.start()
-    logging.info(f"Web server started on port {PORT}")
+    logger.info(f"Веб-сервер Mini App запущен на порту {PORT}")
 
 async def main():
+    logger.info("Запуск бота...")
+    # Очищаем зависшие вебхуки, чтобы polling работал корректно
+    await bot.delete_webhook(drop_pending_updates=True)
+    
+    # Запускаем веб-сервер и поллинг одновременно
     await start_web_server()
     await dp.start_polling(bot)
 
