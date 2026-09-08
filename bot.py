@@ -5,13 +5,17 @@ from aiohttp import web
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.storage.memory import MemoryStorage
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 TOKEN = "8842726749:AAG1v-6yz64Xn9BWBNtpC-oYT4kW6ui6UIo"
 bot = Bot(token=TOKEN)
-dp = Dispatcher()
+# Используем память для хранения шагов диалога (чата)
+dp = Dispatcher(storage=MemoryStorage())
 router = Router()
 
 PORT = int(os.getenv("PORT", 8080))
@@ -25,20 +29,63 @@ if PUBLIC_DOMAIN:
 else:
     WEBAPP_URL = f"http://localhost:{PORT}/webapp"
 
+# Описываем состояния для полноценного диалога (чата)
+class DialogState(StatesGroup):
+    waiting_for_name = State()
+    chatting_with_bot = State()
+
 @router.message(Command("start"))
-async def cmd_start(message: Message):
+async def cmd_start(message: Message, state: FSMContext):
     logger.info(f"Получена команда /start от пользователя {message.from_user.id}")
+    
+    # Сбрасываем старые состояния и начинаем диалог знакомства
+    await state.set_state(DialogState.waiting_for_name)
+    
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📞 Симулировать входящий звонок (Mini App)", web_app=WebAppInfo(url=WEBAPP_URL))],
         [InlineKeyboardButton(text="🆘 Экстренная помощь", callback_data="help_sos")]
     ])
+    
     welcome_text = (
-        "🤖 Бот успешно запущен и работает!\n\n"
-        "Утром каждый день как судный, когда наступает день идти в колледж, "
-        "но давай прокачаем твою кибербезопасность.\n\n"
-        "Я бот-тренажер «Антимошенник». Нажми кнопку ниже, чтобы запустить интерактивный звонок в Mini App:"
+        "🤖 Привет! Я бот-тренажер «Антимошенник».\n\n"
+        "Давай пообщаемся в чате! Как тебя зовут? (Напиши свое имя ответным сообщением):"
     )
     await message.answer(welcome_text, reply_markup=keyboard)
+
+# Шаг 1: Ловим имя пользователя и переводим в режим активного чата
+@router.message(DialogState.waiting_for_name)
+async def process_name(message: Message, state: FSMContext):
+    user_name = message.text
+    # Сохраняем имя в память диалога
+    await state.update_data(name=user_name)
+    await state.set_state(DialogState.chatting_with_bot)
+    
+    await message.answer(
+        f"Очень приятно, {user_name}!\n\n"
+        "Теперь ты можешь писать мне любые вопросы про мошенников в этот чат, "
+        "и я буду отвечать. Или нажми на кнопку выше, чтобы запустить симуляцию звонка."
+    )
+
+# Шаг 2: Интерактивный чат (бот взаимодействует на любые сообщения)
+@router.message(DialogState.chatting_with_bot)
+async def interactive_chat(message: Message, state: FSMContext):
+    user_data = await state.get_data()
+    user_name = user_data.get("name", "друг")
+    text = message.text.lower()
+
+    # Простая логика «живого» общения и ответов на вопросы
+    if "привет" in text or "здравствуй" in text:
+        await message.answer(f"Привет-привет, {user_name}! Чем могу помочь по безопасности?")
+    elif "деньги" in text or "карту" in text or "перевод" in text:
+        await message.answer("⚠️ Внимание! Если незнакомцы просят данные карты или код из СМС — это 100% мошенники. Никому их не сообщай!")
+    elif "пока" in text or "до свидания" in text:
+        await message.answer(f"До встречи, {user_name}! Будь осторожен и не попадайся на уловки мошенников.")
+        await state.clear()  # сбрасываем состояние чата при прощании
+    else:
+        await message.answer(
+            f"Я услышал тебя, {user_name}! Как бот-антимошенник советую всегда проверять информацию. "
+            "Хочешь проверить себя на звонок от «службы безопасности»? Нажми /start."
+        )
 
 @router.callback_query(F.data == "help_sos")
 async def help_sos(callback: CallbackQuery):
