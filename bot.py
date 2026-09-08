@@ -4,7 +4,7 @@ import asyncio
 from aiohttp import web
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo, MenuButtonWebApp
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -14,7 +14,6 @@ logger = logging.getLogger(__name__)
 
 TOKEN = "8842726749:AAG1v-6yz64Xn9BWBNtpC-oYT4kW6ui6UIo"
 bot = Bot(token=TOKEN)
-# Используем память для хранения шагов диалога (чата)
 dp = Dispatcher(storage=MemoryStorage())
 router = Router()
 
@@ -29,7 +28,7 @@ if PUBLIC_DOMAIN:
 else:
     WEBAPP_URL = f"http://localhost:{PORT}/webapp"
 
-# Описываем состояния для полноценного диалога (чата)
+# Описываем состояния для активного диалога (чата)
 class DialogState(StatesGroup):
     waiting_for_name = State()
     chatting_with_bot = State()
@@ -37,8 +36,6 @@ class DialogState(StatesGroup):
 @router.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
     logger.info(f"Получена команда /start от пользователя {message.from_user.id}")
-    
-    # Сбрасываем старые состояния и начинаем диалог знакомства
     await state.set_state(DialogState.waiting_for_name)
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -52,39 +49,47 @@ async def cmd_start(message: Message, state: FSMContext):
     )
     await message.answer(welcome_text, reply_markup=keyboard)
 
-# Шаг 1: Ловим имя пользователя и переводим в режим активного чата
+@router.message(Command("tips"))
+async def cmd_tips(message: Message):
+    tips_text = (
+        "🛡 **Главные правила кибербезопасности:**\n\n"
+        "1. Сотрудники банка, госорганов или полиции **никогда** не просят назвать код из СМС, пароль или перевести деньги на «безопасный счет».\n"
+        "2. Если вас пугают срочной блокировкой или потерей денег и при этом торопят — это классический психологический трюк мошенников. Просто положите трубку.\n"
+        "3. Никогда не устанавливайте сторонние программы (типа RustDesk, AnyDesk или Beamy) по просьбе «службы поддержки»."
+    )
+    await message.answer(tips_text)
+
+# Шаг 1: Ловим имя пользователя
 @router.message(DialogState.waiting_for_name)
 async def process_name(message: Message, state: FSMContext):
     user_name = message.text
-    # Сохраняем имя в память диалога
     await state.update_data(name=user_name)
     await state.set_state(DialogState.chatting_with_bot)
     
     await message.answer(
         f"Очень приятно, {user_name}!\n\n"
         "Теперь ты можешь писать мне любые вопросы про мошенников в этот чат, "
-        "и я буду отвечать. Или нажми на кнопку выше, чтобы запустить симуляцию звонка."
+        "и я буду отвечать. Также можешь использовать команду /tips для полезных советов."
     )
 
-# Шаг 2: Интерактивный чат (бот взаимодействует на любые сообщения)
+# Шаг 2: Интерактивный чат (диалог с ботом)
 @router.message(DialogState.chatting_with_bot)
 async def interactive_chat(message: Message, state: FSMContext):
     user_data = await state.get_data()
     user_name = user_data.get("name", "друг")
     text = message.text.lower()
 
-    # Простая логика «живого» общения и ответов на вопросы
     if "привет" in text or "здравствуй" in text:
         await message.answer(f"Привет-привет, {user_name}! Чем могу помочь по безопасности?")
     elif "деньги" in text or "карту" in text or "перевод" in text:
         await message.answer("⚠️ Внимание! Если незнакомцы просят данные карты или код из СМС — это 100% мошенники. Никому их не сообщай!")
     elif "пока" in text or "до свидания" in text:
         await message.answer(f"До встречи, {user_name}! Будь осторожен и не попадайся на уловки мошенников.")
-        await state.clear()  # сбрасываем состояние чата при прощании
+        await state.clear()
     else:
         await message.answer(
             f"Я услышал тебя, {user_name}! Как бот-антимошенник советую всегда проверять информацию. "
-            "Хочешь проверить себя на звонок от «службы безопасности»? Нажми /start."
+            "Хочешь проверить себя на звонок от «службы безопасности»? Нажми кнопку звонка в меню слева!"
         )
 
 @router.callback_query(F.data == "help_sos")
@@ -248,6 +253,19 @@ async def start_web_server():
 async def main():
     logger.info("Запуск бота...")
     await bot.delete_webhook(drop_pending_updates=True)
+    
+    # Автоматически добавляем кнопку Mini App возле поля ввода сообщения
+    try:
+        await bot.set_chat_menu_button(
+            menu_button=MenuButtonWebApp(
+                text="📞 Звонок",
+                web_app=WebAppInfo(url=WEBAPP_URL)
+            )
+        )
+        logger.info("Кнопка Menu Button для Mini App успешно установлена!")
+    except Exception as e:
+        logger.error(f"Не удалось установить кнопку меню: {e}")
+
     await start_web_server()
     await dp.start_polling(bot)
 
