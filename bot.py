@@ -11,6 +11,8 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import MenuButtonWebApp, WebAppInfo, FSInputFile
 from gtts import gTTS
+import speech_recognition as sr
+from pydub import AudioSegment
 
 # Токен твоего бота
 TOKEN = "8842726749:AAEYhZy0mLV_sgQAO0Y6xJDI6ly65G3G8lY"
@@ -79,35 +81,45 @@ HTML_PAGE = """
 """
 
 
-# Функция для генерации голосового сообщения из текста
+# Функция для генерации голосового сообщения из текста и отправки
 async def send_voice_reply(message: types.Message, text_to_speak: str):
-    # Сначала отправляем обычный текст, чтобы пользователь видел ответ
     await message.answer(text_to_speak)
-    
     try:
-        # Создаем аудиофайл через Google TTS на русском языке
         tts = gTTS(text=text_to_speak, lang='ru', slow=False)
-        
-        # Сохраняем во временный файл
         with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as tmp:
             tmp_path = tmp.name
             tts.save(tmp_path)
         
-        # Отправляем как голосовое сообщение в Telegram
         voice = FSInputFile(tmp_path)
         await message.answer_voice(voice=voice)
-        
-        # Удаляем временный файл после отправки
         os.unlink(tmp_path)
     except Exception as e:
         logging.error(f"Ошибка генерации голоса: {e}")
+
+
+# Логика анализа текста и формирования ответа
+async def handle_dialog_logic(message: types.Message, user_text: str, state: FSMContext):
+    data = await state.get_data()
+    name = data.get("name", "Друг")
+    text_lower = user_text.lower()
+
+    if any(word in text_lower for word in ['полици', 'мвд', 'следствен', 'капитан', 'майор', 'суд']):
+        reply = f"Внимание, {name}! Настоящие сотрудники полиции никогда не решают вопросы по телефону. Немедленно положите трубку!"
+    elif any(word in text_lower for word in ['безопасн', 'счет', 'резервн']):
+        reply = f"Опасно, {name}! Понятия безопасного счета не существует. Это мошенники, сбросьте вызов."
+    elif any(word in text_lower for word in ['код из смс', 'цифр', 'пароль']):
+        reply = f"Ни в коем случае не называйте коды из СМС, {name}! Это украдет ваши деньги."
+    else:
+        reply = f"Я выслушал вас, {name}. Судя по вашим словам: «{user_text}», будьте осторожны и не поддавайтесь панике."
+
+    await send_voice_reply(message, reply)
 
 
 # Обработчик команды /start
 @dp.message(F.text == "/start")
 async def cmd_start(message: types.Message, state: FSMContext):
     await state.set_state(DialogState.waiting_for_name)
-    text = "👋 Привет! Я бот-консультант «Антимошенник». Теперь я умею разговаривать голосом! Как к вам обращаться?"
+    text = "👋 Привет! Я бот-консультант «Антимошенник». Вы можете разговаривать со мной голосом! Как к вам обращаться?"
     await send_voice_reply(message, text)
 
 
@@ -117,34 +129,56 @@ async def process_name(message: types.Message, state: FSMContext):
     name = message.text.strip()
     await state.update_data(name=name)
     await state.set_state(DialogState.chatting)
-    text = f"Рад знакомству, {name}! Расскажите мне голосом или текстом о подозрительном звонке, и я отвечу вам голосовым сообщением."
+    text = f"Рад знакомству, {name}! Теперь вы можете отправлять мне голосовые сообщения, и я буду отвечать вам голосом."
     await send_voice_reply(message, text)
 
 
-# Разговор с ботом (отвечает голосом на любой текст)
-@dp.message(DialogState.chatting)
-async def process_live_chat(message: types.Message, state: FSMContext):
-    user_text = message.text.lower()
-    data = await state.get_data()
-    name = data.get("name", "Друг")
+# Текстовый ввод в режиме диалога
+@dp.message(DialogState.chatting, F.text)
+async def process_text_chat(message: types.Message, state: FSMContext):
+    await handle_dialog_logic(message, message.text, state)
 
-    if any(word in user_text for word in ['полици', 'мвд', 'следствен', 'капитан', 'майор', 'суд']):
-        reply = f"Внимание, {name}! Настоящие сотрудники полиции никогда не решают вопросы по телефону. Немедленно положите трубку!"
-    elif any(word in user_text for word in ['безопасн', 'счет', 'резервн']):
-        reply = f"Опасно, {name}! Понятия безопасного счета не существует. Это мошенники, сбросьте вызов."
-    elif any(word in user_text for word in ['код из смс', 'цифр', 'пароль']):
-        reply = f"Ни в коем случае не называйте коды из СМС, {name}! Это украдет ваши деньги."
-    else:
-        reply = f"Я выслушал вас, {name}. Будьте осторожны и не поддавайтесь панике по телефону."
 
-    await send_voice_reply(message, reply)
+# Голосовой ввод в режиме диалога (распознавание речи)
+@dp.message(DialogState.chatting, F.voice)
+async def process_voice_chat(message: types.Message, state: FSMContext):
+    ogg_path = f"voice_{message.from_user.id}.ogg"
+    wav_path = f"voice_{message.from_user.id}.wav"
+    
+    try:
+        # Скачиваем голосовое сообщение из Telegram
+        file_info = await bot.get_file(message.voice.file_id)
+        await bot.download_file(file_info.file_path, ogg_path)
+        
+        # Конвертируем ogg в wav для распознавания
+        sound = AudioSegment.from_file(ogg_path, format="ogg")
+        sound.export(wav_path, format="wav")
+        
+        # Распознаем речь через Google Speech Recognition
+        r = sr.Recognizer()
+        with sr.AudioFile(wav_path) as source:
+            audio_data = r.record(source)
+            recognized_text = r.recognize_google(audio_data, language="ru-RU")
+        
+        # Удаляем временные файлы
+        if os.path.exists(ogg_path): os.remove(ogg_path)
+        if os.path.exists(wav_path): os.remove(wav_path)
+        
+        # Передаем распознанный текст в общую логику ответа
+        await handle_dialog_logic(message, recognized_text, state)
+        
+    except Exception as e:
+        logging.error(f"Ошибка распознавания голоса: {e}")
+        if os.path.exists(ogg_path): os.remove(ogg_path)
+        if os.path.exists(wav_path): os.remove(wav_path)
+        await send_voice_reply(message, "Не удалось разобрать голосовое сообщение. Попробуйте записать его еще раз четче.")
 
 
 # Обработка данных из Mini App
 @dp.message(F.web_app_data)
 async def handle_web_app_data(message: types.Message):
     if message.web_app_data.data == "report_fraud_action":
-        await send_voice_reply(message, "Номер успешно занесен в базу подозрительных. Спасибо!")
+        await send_voice_reply(message, "Номер успешно занесен в базу подозрительных. Спасибо за бдительность!")
 
 
 async def set_default_commands(bot: Bot):
@@ -176,7 +210,7 @@ async def main():
     await set_default_commands(bot)
     asyncio.create_task(start_web_server())
     await bot.delete_webhook(drop_pending_updates=True)
-    logging.info("Бот с голосовыми ответами запущен!")
+    logging.info("Бот с поддержкой голосового ввода и вывода запущен!")
     await dp.start_polling(bot)
 
 
