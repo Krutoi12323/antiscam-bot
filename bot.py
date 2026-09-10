@@ -188,18 +188,18 @@ async def process_voice_chat(message: types.Message, state: FSMContext):
         await send_voice_reply(message, "Не удалось разобрать голосовое сообщение. Попробуйте записать его еще раз четче.")
 
 
-# Обработка данных из Mini App с автоматическим переводом в режим живого диалога
+# Обработка выбора в Mini App: активируем чат и отвечаем голосом
 @dp.message(F.web_app_data)
 async def handle_web_app_data(message: types.Message, state: FSMContext):
     data = message.web_app_data.data
     await state.set_state(DialogState.chatting)
     
     if data == "hangup_action":
-        text = "Вызов прерван! Расскажите, что произошло перед этим? Кто вам звонил и что требовали?"
+        text = "Вызов прерван! Расскажите, что произошло? Кто вам звонил и что они требовали?"
     elif data == "report_fraud_action":
-        text = "Информация принята в базу. Напишите или наговорите голосом подробности звонка или номер мошенников."
+        text = "Информация принята. Напишите или наговорите голосом подробности инцидента."
     else:
-        text = "Я на связи. Что вас тревожит? Расскажите подробнее."
+        text = "Я на связи. Расскажите, что вас беспокоит?"
         
     await send_voice_reply(message, text)
 
