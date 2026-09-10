@@ -15,9 +15,9 @@ import speech_recognition as sr
 from pydub import AudioSegment
 from openai import AsyncOpenAI
 
-# Токен твоего бота и OpenAI API ключ
+# Токен твоего бота и OpenAI API ключ из переменных окружения
 TOKEN = "8842726749:AAEYhZy0mLV_sgQAO0Y6xJDI6ly65G3G8lY"
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "твой_openai_api_ключ_сюда")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
@@ -140,7 +140,7 @@ async def handle_dialog_logic(message: types.Message, user_text: str, state: FSM
         reply = response.choices[0].message.content
     except Exception as e:
         logging.error(f"Ошибка запроса к нейросети: {e}")
-        reply = f"Извини, {name}, произошла небольшая ошибка связи. Главное — не поддавайся панике и никому не переводи деньги!"
+        reply = f"Извини, {name}, произошла ошибка связи. Главное — не поддавайся панике и никому не переводи деньги!"
 
     await send_voice_reply(message, reply)
 
