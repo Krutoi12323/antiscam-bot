@@ -169,23 +169,23 @@ async def handle_web_app_data(message: types.Message):
         )
 
 
-# Настройка постоянной кнопки меню (Mini App)
+# Настройка постоянной кнопки меню (Mini App) с путем /webapp
 async def set_default_commands(bot: Bot):
-    # Укажи здесь публичный домен от Railway (например, https://twa-production-xxxx.up.railway.app)
-    # Если запущен локально для тестов, можно использовать заглушку
     web_app_url = os.getenv("RAILWAY_PUBLIC_DOMAIN", "https://example.com")
     if not web_app_url.startswith("http"):
         web_app_url = f"https://{web_app_url}"
+    
+    full_url = f"{web_app_url.rstrip('/')}/webapp"
 
     await bot.set_chat_menu_button(
         menu_button=MenuButtonWebApp(
             text="🚨 Экстренный вызов",
-            web_app=WebAppInfo(url=web_app_url),
+            web_app=WebAppInfo(url=full_url),
         )
     )
 
 
-# Веб-сервер на aiohttp для отдачи страницы Mini App
+# Веб-сервер на aiohttp для отдачи страницы Mini App (обрабатываем и /, и /webapp)
 async def handle_index(request):
     return web.Response(text=HTML_PAGE, content_type="text/html")
 
@@ -193,6 +193,8 @@ async def handle_index(request):
 async def start_web_server():
     app = web.Application()
     app.router.add_get("/", handle_index)
+    app.router.add_get("/webapp", handle_index)
+    
     runner = web.AppRunner(app)
     await runner.setup()
     port = int(os.environ.get("PORT", 8080))
