@@ -32,7 +32,7 @@ class DialogState(StatesGroup):
     chatting = State()
 
 
-# HTML-страница для веб-сервера (Mini App)
+# Обновленный дизайн Mini App с кнопками вызова и экстренных действий
 HTML_PAGE = """
 <!DOCTYPE html>
 <html lang="ru">
@@ -46,42 +46,61 @@ HTML_PAGE = """
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background-color: var(--tg-theme-bg-color, #1c1c1e);
             color: var(--tg-theme-text-color, #ffffff);
-            margin: 0; padding: 20px; display: flex; flex-direction: column;
+            margin: 0; padding: 16px; display: flex; flex-direction: column;
             align-items: center; justify-content: center; height: 100vh; box-sizing: border-box; text-align: center;
         }
         .card {
             background: var(--tg-theme-secondary-bg-color, #2c2c2e);
-            padding: 24px; border-radius: 16px; width: 100%; max-width: 320px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            padding: 20px; border-radius: 20px; width: 100%; max-width: 340px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.4);
         }
-        h2 { margin-top: 0; color: #ff3b30; }
-        p { font-size: 14px; opacity: 0.8; line-height: 1.4; }
+        .icon { font-size: 48px; margin-bottom: 10px; }
+        h2 { margin: 0 0 8px 0; color: #ff3b30; font-size: 22px; }
+        p { font-size: 14px; opacity: 0.85; line-height: 1.4; margin-bottom: 20px; }
+        .btn-group { display: flex; flex-direction: column; gap: 10px; }
         .btn {
-            background-color: #34c759; color: white; border: none; padding: 12px 20px;
-            border-radius: 10px; font-size: 16px; font-weight: 600; width: 100%; cursor: pointer; margin-top: 16px;
+            background-color: #3a3a3c; color: white; border: none; padding: 14px;
+            border-radius: 12px; font-size: 15px; font-weight: 600; width: 100%; cursor: pointer;
+            display: flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none;
         }
-        .btn-danger { background-color: #ff3b30; margin-top: 8px; }
+        .btn-danger { background-color: #ff3b30; color: white; }
+        .btn-call { background-color: #34c759; color: white; }
+        .btn:active { opacity: 0.8; }
     </style>
 </head>
 <body>
     <div class="card">
-        <h2>🚨 Подозрение на мошенничество!</h2>
-        <p>Если вам звонят из «службы безопасности банка» и требуют деньги — положите трубку!</p>
-        <button class="btn" onclick="closeApp()">Сбросить вызов</button>
-        <button class="btn btn-danger" onclick="reportFraud()">Сообщить о номере</button>
+        <div class="icon">🚨</div>
+        <h2>Осторожно, мошенники!</h2>
+        <p>Если вам звонят неизвестные и требуют перевести деньги или взять кредит — немедленно прервите вызов.</p>
+        
+        <div class="btn-group">
+            <button class="btn btn-danger" onclick="actionHangup()">🔴 Положить трубку</button>
+            <a href="tel:112" class="btn btn-call">📞 Экстренный вызов (112)</a>
+            <button class="btn" onclick="actionReport()">⚠️ Сообщить боту</button>
+        </div>
     </div>
+
     <script>
         const tg = window.Telegram.WebApp;
         tg.ready();
-        function closeApp() { tg.close(); }
-        function reportFraud() { tg.sendData("report_fraud_action"); tg.close(); }
+
+        function actionHangup() {
+            tg.sendData("hangup_action");
+            tg.close();
+        }
+
+        function actionReport() {
+            tg.sendData("report_fraud_action");
+            tg.close();
+        }
     </script>
 </body>
 </html>
 """
 
 
-# Функция для генерации голосового сообщения из текста и отправки
+# Функция для генерации голосового сообщения из текста
 async def send_voice_reply(message: types.Message, text_to_speak: str):
     await message.answer(text_to_speak)
     try:
@@ -146,25 +165,20 @@ async def process_voice_chat(message: types.Message, state: FSMContext):
     wav_path = f"voice_{message.from_user.id}.wav"
     
     try:
-        # Скачиваем голосовое сообщение из Telegram
         file_info = await bot.get_file(message.voice.file_id)
         await bot.download_file(file_info.file_path, ogg_path)
         
-        # Конвертируем ogg в wav для распознавания
         sound = AudioSegment.from_file(ogg_path, format="ogg")
         sound.export(wav_path, format="wav")
         
-        # Распознаем речь через Google Speech Recognition
         r = sr.Recognizer()
         with sr.AudioFile(wav_path) as source:
             audio_data = r.record(source)
             recognized_text = r.recognize_google(audio_data, language="ru-RU")
         
-        # Удаляем временные файлы
         if os.path.exists(ogg_path): os.remove(ogg_path)
         if os.path.exists(wav_path): os.remove(wav_path)
         
-        # Передаем распознанный текст в общую логику ответа
         await handle_dialog_logic(message, recognized_text, state)
         
     except Exception as e:
@@ -174,10 +188,13 @@ async def process_voice_chat(message: types.Message, state: FSMContext):
         await send_voice_reply(message, "Не удалось разобрать голосовое сообщение. Попробуйте записать его еще раз четче.")
 
 
-# Обработка данных из Mini App
+# Обработка данных из Mini App (кнопки в приложении)
 @dp.message(F.web_app_data)
 async def handle_web_app_data(message: types.Message):
-    if message.web_app_data.data == "report_fraud_action":
+    data = message.web_app_data.data
+    if data == "hangup_action":
+        await send_voice_reply(message, "Отлично! Вызов прерван. Вы в безопасности.")
+    elif data == "report_fraud_action":
         await send_voice_reply(message, "Номер успешно занесен в базу подозрительных. Спасибо за бдительность!")
 
 
@@ -210,7 +227,7 @@ async def main():
     await set_default_commands(bot)
     asyncio.create_task(start_web_server())
     await bot.delete_webhook(drop_pending_updates=True)
-    logging.info("Бот с поддержкой голосового ввода и вывода запущен!")
+    logging.info("Бот запущен!")
     await dp.start_polling(bot)
 
 
