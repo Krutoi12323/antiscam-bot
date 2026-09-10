@@ -13,17 +13,20 @@ from aiogram.types import MenuButtonWebApp, WebAppInfo, FSInputFile
 from gtts import gTTS
 import speech_recognition as sr
 from pydub import AudioSegment
+from openai import AsyncOpenAI
 
-# Токен твоего бота
+# Токен твоего бота и OpenAI API ключ
 TOKEN = "8842726749:AAEYhZy0mLV_sgQAO0Y6xJDI6ly65G3G8lY"
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "твой_openai_api_ключ_сюда")
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
 
-# Инициализация бота и диспетчера
+# Инициализация бота, диспетчера и OpenAI клиента
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
+openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
 
 # Состояния FSM для диалога
@@ -116,20 +119,28 @@ async def send_voice_reply(message: types.Message, text_to_speak: str):
         logging.error(f"Ошибка генерации голоса: {e}")
 
 
-# Логика анализа текста и формирования ответа
+# Интеллектуальный ответ через Нейросеть (OpenAI)
 async def handle_dialog_logic(message: types.Message, user_text: str, state: FSMContext):
     data = await state.get_data()
     name = data.get("name", "Друг")
-    text_lower = user_text.lower()
 
-    if any(word in text_lower for word in ['полици', 'мвд', 'следствен', 'капитан', 'майор', 'суд']):
-        reply = f"Внимание, {name}! Настоящие сотрудники полиции никогда не решают вопросы по телефону. Немедленно положите трубку!"
-    elif any(word in text_lower for word in ['безопасн', 'счет', 'резервн']):
-        reply = f"Опасно, {name}! Понятия безопасного счета не существует. Это мошенники, сбросьте вызов."
-    elif any(word in text_lower for word in ['код из смс', 'цифр', 'пароль']):
-        reply = f"Ни в коем случае не называйте коды из СМС, {name}! Это украдет ваши деньги."
-    else:
-        reply = f"Я выслушал вас, {name}. Судя по вашим словам: «{user_text}», будьте осторожны и не поддавайтесь панике."
+    prompt = (
+        f"Ты бот-консультант «Антимошенник», общаешься с пользователем по имени {name}. "
+        f"Твоя задача — защитить его от мошенников, успокоить, дать четкий и разумный совет. "
+        f"Отвечай кратко (до 2-3 предложений), разговорным и уверенным тоном, чтобы текст звучал отлично при озвучке голосом. "
+        f"Слова пользователя: {user_text}"
+    )
+
+    try:
+        response = await openai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "system", "content": prompt}],
+            max_tokens=150
+        )
+        reply = response.choices[0].message.content
+    except Exception as e:
+        logging.error(f"Ошибка запроса к нейросети: {e}")
+        reply = f"Извини, {name}, произошла небольшая ошибка связи. Главное — не поддавайся панике и никому не переводи деньги!"
 
     await send_voice_reply(message, reply)
 
@@ -138,7 +149,7 @@ async def handle_dialog_logic(message: types.Message, user_text: str, state: FSM
 @dp.message(F.text == "/start")
 async def cmd_start(message: types.Message, state: FSMContext):
     await state.set_state(DialogState.waiting_for_name)
-    text = "👋 Привет! Я бот-консультант «Антимошенник». Вы можете разговаривать со мной голосом! Как к вам обращаться?"
+    text = "👋 Привет! Я умный голосовой бот-консультант «Антимошенник». Как к вам обращаться?"
     await send_voice_reply(message, text)
 
 
@@ -148,7 +159,7 @@ async def process_name(message: types.Message, state: FSMContext):
     name = message.text.strip()
     await state.update_data(name=name)
     await state.set_state(DialogState.chatting)
-    text = f"Рад знакомству, {name}! Теперь вы можете отправлять мне голосовые сообщения, и я буду отвечать вам голосом."
+    text = f"Рад знакомству, {name}! Теперь можешь писать или отправлять мне голосовые сообщения, я отвечу тебе голосом."
     await send_voice_reply(message, text)
 
 
@@ -185,21 +196,21 @@ async def process_voice_chat(message: types.Message, state: FSMContext):
         logging.error(f"Ошибка распознавания голоса: {e}")
         if os.path.exists(ogg_path): os.remove(ogg_path)
         if os.path.exists(wav_path): os.remove(wav_path)
-        await send_voice_reply(message, "Не удалось разобрать голосовое сообщение. Попробуйте записать его еще раз четче.")
+        await send_voice_reply(message, "Не удалось разобрать голосовое сообщение. Попробуй записать его еще раз.")
 
 
-# Обработка выбора в Mini App: активируем чат и отвечаем голосом
+# Обработка выбора в Mini App
 @dp.message(F.web_app_data)
 async def handle_web_app_data(message: types.Message, state: FSMContext):
     data = message.web_app_data.data
     await state.set_state(DialogState.chatting)
     
     if data == "hangup_action":
-        text = "Вызов прерван! Расскажите, что произошло? Кто вам звонил и что они требовали?"
+        text = "Вызов прерван! Расскажи, что случилось и кто звонил?"
     elif data == "report_fraud_action":
-        text = "Информация принята. Напишите или наговорите голосом подробности инцидента."
+        text = "Информация принята. Напиши или наговори голосом подробности инцидента."
     else:
-        text = "Я на связи. Расскажите, что вас беспокоит?"
+        text = "Я на связи. Что тебя беспокоит?"
         
     await send_voice_reply(message, text)
 
@@ -233,7 +244,7 @@ async def main():
     await set_default_commands(bot)
     asyncio.create_task(start_web_server())
     await bot.delete_webhook(drop_pending_updates=True)
-    logging.info("Бот запущен и готов к работе!")
+    logging.info("Нейро-голосовой бот запущен!")
     await dp.start_polling(bot)
 
 
