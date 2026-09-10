@@ -32,7 +32,7 @@ class DialogState(StatesGroup):
     chatting = State()
 
 
-# Обновленный дизайн Mini App с кнопками вызова и экстренных действий
+# HTML-страница Mini App с кнопками экстренных действий
 HTML_PAGE = """
 <!DOCTYPE html>
 <html lang="ru">
@@ -100,7 +100,7 @@ HTML_PAGE = """
 """
 
 
-# Функция для генерации голосового сообщения из текста
+# Функция для генерации голосового сообщения из текста и отправки
 async def send_voice_reply(message: types.Message, text_to_speak: str):
     await message.answer(text_to_speak)
     try:
@@ -188,14 +188,20 @@ async def process_voice_chat(message: types.Message, state: FSMContext):
         await send_voice_reply(message, "Не удалось разобрать голосовое сообщение. Попробуйте записать его еще раз четче.")
 
 
-# Обработка данных из Mini App (кнопки в приложении)
+# Обработка данных из Mini App с автоматическим переводом в режим живого диалога
 @dp.message(F.web_app_data)
-async def handle_web_app_data(message: types.Message):
+async def handle_web_app_data(message: types.Message, state: FSMContext):
     data = message.web_app_data.data
+    await state.set_state(DialogState.chatting)
+    
     if data == "hangup_action":
-        await send_voice_reply(message, "Отлично! Вызов прерван. Вы в безопасности.")
+        text = "Вызов прерван! Расскажите, что произошло перед этим? Кто вам звонил и что требовали?"
     elif data == "report_fraud_action":
-        await send_voice_reply(message, "Номер успешно занесен в базу подозрительных. Спасибо за бдительность!")
+        text = "Информация принята в базу. Напишите или наговорите голосом подробности звонка или номер мошенников."
+    else:
+        text = "Я на связи. Что вас тревожит? Расскажите подробнее."
+        
+    await send_voice_reply(message, text)
 
 
 async def set_default_commands(bot: Bot):
@@ -227,7 +233,7 @@ async def main():
     await set_default_commands(bot)
     asyncio.create_task(start_web_server())
     await bot.delete_webhook(drop_pending_updates=True)
-    logging.info("Бот запущен!")
+    logging.info("Бот запущен и готов к работе!")
     await dp.start_polling(bot)
 
 
