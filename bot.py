@@ -12,7 +12,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-TOKEN = "8842726749:AAG1v-6yz64Xn9BWBNtpC-oYT4kW6ui6UIo"
+TOKEN = "8842726749:AAHxtjXFeX8-vcQtqSKxGUpYc5ozG7Y_yI8"
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 router = Router()
