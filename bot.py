@@ -13,11 +13,14 @@ from aiogram.types import MenuButtonWebApp, WebAppInfo, FSInputFile
 import edge_tts
 import speech_recognition as sr
 from pydub import AudioSegment
-from openai import AsyncOpenAI
+from google import genai
 
 TOKEN = "8842726749:AAEYhZy0mLV_sgQAO0Y6xJDI6ly65G3G8lY"
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
+# Выбор голоса: 
+# Женский: "ru-RU-SvetlanaNeural"
+# Мужской: "ru-RU-DmitryNeural"
 VOICE_NAME = "ru-RU-SvetlanaNeural"
 
 logging.basicConfig(level=logging.INFO)
@@ -25,7 +28,9 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
-openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+
+# Инициализация клиента Google GenAI
+ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
 
 class DialogState(StatesGroup):
@@ -128,14 +133,13 @@ async def handle_dialog_logic(message: types.Message, user_text: str, state: FSM
     )
 
     try:
-        response = await openai_client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "system", "content": prompt}],
-            max_tokens=150
+        response = ai_client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
         )
-        reply = response.choices[0].message.content
+        reply = response.text
     except Exception as e:
-        logging.error(f"Ошибка запроса к нейросети: {e}")
+        logging.error(f"Ошибка запроса к Gemini: {e}")
         reply = f"Извини, {name}, произошла ошибка связи. Главное — не поддавайся панике и никому не переводи деньги!"
 
     await send_voice_reply(message, reply)
@@ -235,7 +239,7 @@ async def main():
     await set_default_commands(bot)
     asyncio.create_task(start_web_server())
     await bot.delete_webhook(drop_pending_updates=True)
-    logging.info("Нейро-голосовой бот с Edge-TTS запущен!")
+    logging.info("Нейро-голосовой бот с Gemini запущен!")
     await dp.start_polling(bot)
 
 
