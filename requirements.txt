@@ -3,4 +3,4 @@ aiohttp
 edge-tts
 SpeechRecognition
 pydub
-openai
+google-genai
