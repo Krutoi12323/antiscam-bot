@@ -1,6 +1,6 @@
 aiogram
 aiohttp
-gtts
+edge-tts
 SpeechRecognition
 pydub
 openai
