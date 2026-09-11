@@ -10,32 +10,29 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import MenuButtonWebApp, WebAppInfo, FSInputFile
-from gtts import gTTS
+import edge_tts
 import speech_recognition as sr
 from pydub import AudioSegment
 from openai import AsyncOpenAI
 
-# Токен твоего бота и OpenAI API ключ из переменных окружения
 TOKEN = "8842726749:AAEYhZy0mLV_sgQAO0Y6xJDI6ly65G3G8lY"
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
-# Настройка логирования
+VOICE_NAME = "ru-RU-SvetlanaNeural"
+
 logging.basicConfig(level=logging.INFO)
 
-# Инициализация бота, диспетчера и OpenAI клиента
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
 
-# Состояния FSM для диалога
 class DialogState(StatesGroup):
     waiting_for_name = State()
     chatting = State()
 
 
-# HTML-страница Mini App с кнопками экстренных действий
 HTML_PAGE = """
 <!DOCTYPE html>
 <html lang="ru">
@@ -103,23 +100,22 @@ HTML_PAGE = """
 """
 
 
-# Функция для генерации голосового сообщения из текста и отправки
 async def send_voice_reply(message: types.Message, text_to_speak: str):
     await message.answer(text_to_speak)
     try:
-        tts = gTTS(text=text_to_speak, lang='ru', slow=False)
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as tmp:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
             tmp_path = tmp.name
-            tts.save(tmp_path)
+        
+        communicate = edge_tts.Communicate(text_to_speak, VOICE_NAME)
+        await communicate.save(tmp_path)
         
         voice = FSInputFile(tmp_path)
         await message.answer_voice(voice=voice)
         os.unlink(tmp_path)
     except Exception as e:
-        logging.error(f"Ошибка генерации голоса: {e}")
+        logging.error(f"Ошибка генерации голоса через Edge-TTS: {e}")
 
 
-# Интеллектуальный ответ через Нейросеть (OpenAI)
 async def handle_dialog_logic(message: types.Message, user_text: str, state: FSMContext):
     data = await state.get_data()
     name = data.get("name", "Друг")
@@ -145,7 +141,6 @@ async def handle_dialog_logic(message: types.Message, user_text: str, state: FSM
     await send_voice_reply(message, reply)
 
 
-# Обработчик команды /start
 @dp.message(F.text == "/start")
 async def cmd_start(message: types.Message, state: FSMContext):
     await state.set_state(DialogState.waiting_for_name)
@@ -153,7 +148,6 @@ async def cmd_start(message: types.Message, state: FSMContext):
     await send_voice_reply(message, text)
 
 
-# Получение имени пользователя (FSM)
 @dp.message(DialogState.waiting_for_name)
 async def process_name(message: types.Message, state: FSMContext):
     name = message.text.strip()
@@ -163,13 +157,11 @@ async def process_name(message: types.Message, state: FSMContext):
     await send_voice_reply(message, text)
 
 
-# Текстовый ввод в режиме диалога
 @dp.message(DialogState.chatting, F.text)
 async def process_text_chat(message: types.Message, state: FSMContext):
     await handle_dialog_logic(message, message.text, state)
 
 
-# Голосовой ввод в режиме диалога (распознавание речи)
 @dp.message(DialogState.chatting, F.voice)
 async def process_voice_chat(message: types.Message, state: FSMContext):
     ogg_path = f"voice_{message.from_user.id}.ogg"
@@ -199,7 +191,6 @@ async def process_voice_chat(message: types.Message, state: FSMContext):
         await send_voice_reply(message, "Не удалось разобрать голосовое сообщение. Попробуй записать его еще раз.")
 
 
-# Обработка выбора в Mini App
 @dp.message(F.web_app_data)
 async def handle_web_app_data(message: types.Message, state: FSMContext):
     data = message.web_app_data.data
@@ -244,7 +235,7 @@ async def main():
     await set_default_commands(bot)
     asyncio.create_task(start_web_server())
     await bot.delete_webhook(drop_pending_updates=True)
-    logging.info("Нейро-голосовой бот запущен!")
+    logging.info("Нейро-голосовой бот с Edge-TTS запущен!")
     await dp.start_polling(bot)
 
 
