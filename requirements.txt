@@ -1,6 +1,0 @@
-aiogram
-aiohttp
-edge-tts
-SpeechRecognition
-pydub
-google-genai
